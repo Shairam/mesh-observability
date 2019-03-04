@@ -75,9 +75,18 @@ public class UserAuthenticationAPI {
             OAuthClient oAuthClient = new OAuthClient(new URLConnectionClient());
             OAuthAccessTokenResponse oAuthResponse = oAuthClient.accessToken(request);
             JSONObject obj = new JSONObject(oAuthResponse.getBody());
+<<<<<<< Updated upstream
             Map responseMap = new HashMap(2);
             responseMap.put("access_token", oAuthResponse.getAccessToken());
             responseMap.put("id_token", obj.get(Constants.ID_TOKEN));
+=======
+<<<<<<< Updated upstream
+=======
+            Map<String, String> responseMap = new HashMap(2);
+            responseMap.put("access_token", oAuthResponse.getAccessToken());
+            responseMap.put("id_token", obj.get(Constants.ID_TOKEN).toString());
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 
 
             return Response.ok().entity(responseMap).build();

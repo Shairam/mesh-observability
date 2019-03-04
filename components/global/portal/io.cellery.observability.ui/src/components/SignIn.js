@@ -21,6 +21,7 @@ import CircularProgress from "@material-ui/core/CircularProgress/CircularProgres
 import Constants from "../utils/constants";
 import HttpUtils from "../utils/api/httpUtils";
 import React from "react";
+import axios from "axios";
 import jwtDecode from "jwt-decode";
 import withStyles from "@material-ui/core/styles/withStyles";
 import withGlobalState, {StateHolder} from "./common/state";
@@ -105,37 +106,33 @@ class SignIn extends React.Component {
         const searchParams = new URLSearchParams(url);
         const {globalState} = this.props;
 
-        if (localStorage.getItem("isAuthenticated") === null || localStorage.getItem(StateHolder.USER) === null) {
-            if (localStorage.getItem("isAuthenticated") !== "true"
-                && localStorage.getItem("isAuthenticated") !== "codeAuthorized") {
-                localStorage.setItem("isAuthenticated", "true");
-                SignIn.getClientCredentials(globalState);
-            } else if (localStorage.getItem("isAuthenticated") === "true" && !searchParams.has("code")) {
-                SignIn.getClientCredentials(globalState);
-            } else if (searchParams.has("code") && localStorage.getItem("isAuthenticated") !== "codeAuthorized") {
+        if (localStorage.getItem(StateHolder.USER) === null) {
+            if (!searchParams.has("code")) {
+                AuthUtils.redirectLoginIDP();
+            } else if (searchParams.has("code")) {
                 const oneTimeToken = searchParams.get("code");
-                HttpUtils.callObservabilityAPI(
-                    {
-                        url: `/user-auth/requestToken/${oneTimeToken}`,
-                        method: "GET"
-                    },
-                    globalState).then((resp) => {
-                    localStorage.setItem("idToken", resp.id_token);
-                    const decoded = jwtDecode(resp.id_token);
-                    localStorage.setItem("access_token", resp.access_token);
-                    const user1 = {
-                        username: decoded.sub
-                    };
+                AuthUtils.getTokens(oneTimeToken, globalState);
 
-                    AuthUtils.signIn(user1.username, globalState);
-                }).catch((err) => {
-                    localStorage.setItem("error", err.toString());
-                });
+                /*
+                 * HttpUtils.callObservabilityAPI(
+                 *     {
+                 *         url: `/user-auth/requestToken/${oneTimeToken}`,
+                 *         method: "GET"
+                 *     },
+                 *     globalState).then((resp) => {
+                 *     localStorage.setItem("idToken", resp.id_token);
+                 *     const decoded = jwtDecode(resp.id_token);
+                 *     localStorage.setItem("access_token", resp.access_token);
+                 *     const user1 = {
+                 *         username: decoded.sub
+                 *     };
+                 *
+                 *     AuthUtils.signIn(user1.username, globalState);
+                 * }).catch((err) => {
+                 *     localStorage.setItem("error", err.toString());
+                 * });
+                 */
             }
-        } else if (localStorage.getItem("isAuthenticated") === "loggedOut") {
-            localStorage.removeItem(StateHolder.USER);
-            window.location.href = `https://${idpAddress}/oidc/logout?id_token_hint=
-            ${localStorage.getItem("idToken")}&post_logout_redirect_uri=http://cellery-dashboard`;
         }
     }
 

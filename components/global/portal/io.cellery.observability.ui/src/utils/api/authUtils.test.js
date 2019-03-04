@@ -21,8 +21,10 @@ import {StateHolder} from "../../components/common/state";
 
 describe("AuthUtils", () => {
     const username = "User1";
+    const accessToken = "12345";
     const loggedInUser = {
-        username: username
+        username: username,
+        accessToken: accessToken
     };
     afterEach(() => {
         localStorage.removeItem(StateHolder.USER);
@@ -32,7 +34,7 @@ describe("AuthUtils", () => {
         it("should set the username provided", () => {
             const stateHolder = new StateHolder();
             const spy = jest.spyOn(stateHolder, "set");
-            AuthUtils.signIn(username, stateHolder);
+            AuthUtils.signIn(loggedInUser, stateHolder);
 
             expect(spy).toHaveBeenCalledTimes(1);
             expect(spy).toHaveBeenCalledWith(StateHolder.USER, loggedInUser);

@@ -16,11 +16,16 @@
  * under the License.
  */
 
+import axios from "axios";
+import jwtDecode from "jwt-decode";
 import {StateHolder} from "../../components/common/state";
+import Constants from "../constants";
 
 /**
  * Authentication/Authorization related utilities.
  */
+const idpAddress = Constants.Dashboard.APIM_HOSTNAME;
+
 class AuthUtils {
 
     /**
@@ -42,6 +47,31 @@ class AuthUtils {
         }
     };
 
+    static redirectLoginIDP = () => {
+        window.location.href = `https://${idpAddress}/oauth2/authorize?response_type=code`
+            + "&client_id=H87NsL_4MG_FVsx8hzRmfEeCxFQa&"
+            + "redirect_uri=http://localhost:3000&nonce=abc&scope=openid";
+    };
+
+    static getTokens = (oneTimeToken, globalState) => {
+        axios.post(`https://${idpAddress}/oauth2/token?grant_type=authorization_code&code=${
+            oneTimeToken}&redirect_uri=http://localhost:3000`, null, {
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization:
+                    "Basic SDg3TnNMXzRNR19GVnN4OGh6Um1mRWVDeEZRYTpzSm5oVUNLSGdmV2o2SXFmbTRyY1F3eWtEa2dh"
+            }
+        }).then((response) => {
+            localStorage.setItem("idToken", response.data.id_token);
+            const decoded = jwtDecode(response.data.id_token);
+            localStorage.setItem("access_token", response.data.access_token);
+            const user1 = {
+                username: decoded.sub
+            };
+            AuthUtils.signIn(user1.username, globalState);
+        });
+    };
+
     /**
      * Sign out the current user.
      * The provided global state will be updated accordingly as well.
@@ -51,8 +81,9 @@ class AuthUtils {
     static signOut = (globalState) => {
         // TODO: Implement User Logout
         globalState.unset(StateHolder.USER);
-        localStorage.setItem("isAuthenticated", "loggedOut");
-        window.location.reload();
+        localStorage.removeItem(StateHolder.USER);
+        window.location.href = `https://${idpAddress}/oidc/logout?id_token_hint=
+            ${localStorage.getItem("idToken")}&post_logout_redirect_uri=http://localhost:3000`;
     };
 
     /**
@@ -60,6 +91,7 @@ class AuthUtils {
      *
      * @returns {string} The current user
      */
+
     static getAuthenticatedUser = () => {
         let user;
         try {
@@ -69,7 +101,7 @@ class AuthUtils {
             localStorage.removeItem(StateHolder.USER);
         }
         return user;
-    }
+    };
 
 }
 
