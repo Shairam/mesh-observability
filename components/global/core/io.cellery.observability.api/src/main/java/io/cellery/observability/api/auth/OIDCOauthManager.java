@@ -228,7 +228,6 @@ public class OIDCOauthManager {
      *
      * @param inputStreamReader The InputStreamReader used while reading response.
      * @param bufReader         The BufferedReader used while reading response.
-     * @return the credentials returned in JSON format.
      */
     private void closeResources(InputStreamReader inputStreamReader, BufferedReader bufReader) {
         if (bufReader != null) {

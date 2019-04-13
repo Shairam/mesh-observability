@@ -21,6 +21,7 @@ import React from "react";
 import Span from "../../../utils/tracing/span";
 import TracingUtils from "../../../utils/tracing/tracingUtils";
 import Typography from "@material-ui/core/Typography";
+import classNames from "classnames";
 import interact from "interactjs";
 import mermaid from "mermaid";
 import {withStyles} from "@material-ui/core/styles";
@@ -28,394 +29,410 @@ import withColor, {ColorGenerator} from "../../common/color";
 import * as PropTypes from "prop-types";
 
 const styles = () => ({
-    newMessageText: {
-        fill: "#4c4cb3 !important",
-        cursor: "pointer"
+    hidden: {
+        display: "none"
     },
-    subtitle: {
-        fontWeight: 400,
-        fontSize: "1.0rem"
-    },
-    mermaid: {
+    sequenceDiagram: {
         padding: 10
     },
-    navigation: {
+    breadcrumbs: {
         paddingTop: 20,
         paddingBottom: 5,
         marginLeft: 50
     },
-    navList: {
+    breadcrumbItemContainer: {
         display: "block",
         float: "left"
+    },
+    clickableBreadcrumbItem: {
+        color: "#3e51b5",
+        cursor: "pointer",
+        textDecorationLine: "none"
+    },
+    breadcrumbItem: {
+        fontWeight: 400,
+        fontSize: "1.0rem"
+    },
+    clickableMessageText: {
+        fill: "#4c4cb3 !important",
+        cursor: "pointer"
+    },
+    tooltip: {
+        display: "none",
+        position: "fixed",
+        background: "#f2f2f2",
+        border: "1px solid #eee",
+        borderRadius: 3,
+        padding: 5,
+        fontSize: 10,
+        cursor: "pointer"
     }
 });
 
 class SequenceDiagram extends React.Component {
 
     static GLOBAL = "global";
-    static GLOBAL_GATEWAY = "global gateway";
+    static GLOBAL_GATEWAY = `${SequenceDiagram.GLOBAL}-gateway`;
+    static ACTION_LABEL_PATTERN = /Call\s([^\s]+)\s\[(\d+)]$/;
+
+    static Classes = {
+        ACTION_MESSAGE_TEXT: "messageText",
+        ACTOR: "actor"
+    };
 
     constructor(props) {
         super(props);
         this.state = {
-            config: "",
-            spanData: "sequenceDiagram \n",
-            copyArr: [],
-            clicked: false,
-            cellName: null,
-            clonedArray: [],
-            cellClicked: "global",
-            callIdClicked: ""
+            sequenceDiagramData: "",
+            selectedCell: SequenceDiagram.GLOBAL,
+            selectedActionId: ""
         };
-
         this.mermaidDivRef = React.createRef();
-
-        this.addCells = this.addCells.bind(this);
-        this.addServices = this.addServices.bind(this);
-        this.drawCells = this.drawCells.bind(this);
     }
 
     render() {
         const {classes} = this.props;
+        const {selectedCell, selectedActionId, sequenceDiagramData} = this.state;
         return (
             <div>
-                <div className={classes.navigation}>
-                    <span className={classes.navList}>
-                        <Typography color="textSecondary" className={classes.subtitle} onClick={this.addCells}
-                            style={this.state.clicked
-                                ? {color: "#3e51b5", cursor: "pointer", textDecoration: "underline"}
-                                : {}}>
-                       Cells
+                <div className={classes.breadcrumbs}>
+                    <span className={classes.breadcrumbItemContainer}>
+                        <Typography color={"textSecondary"} onClick={this.drawCellLevelSequenceDiagram}
+                            className={classNames(classes.breadcrumbItem,
+                                {[classes.clickableBreadcrumbItem]: Boolean(selectedActionId)})}>
+                        Cells
                         </Typography>
                     </span>
-                    <span className={classes.navList}>
-                        <ChevronRight color="action" style={this.state.clicked ? {} : {display: "none"}}/>
+                    <span className={classes.breadcrumbItemContainer}>
+                        <ChevronRight className={classNames({[classes.hidden]: !selectedActionId})}
+                            color={"action"}/>
                     </span>
-                    <span className={classes.navList}>
-                        <Typography color="textSecondary" className={classes.subtitle}
-                            style={this.state.clicked ? {} : {display: "none"}}>
-                            {this.state.cellClicked} cell [{this.state.callIdClicked}] - Services
+                    <span className={classes.breadcrumbItemContainer}>
+                        <Typography color={"textSecondary"}
+                            className={classNames(classes.breadcrumbItem,
+                                {[classes.hidden]: !selectedActionId})}>
+                            Call {selectedCell} Cell [{selectedActionId}]
                         </Typography>
                     </span>
-
                 </div>
                 <br/>
-                <div className={classes.mermaid} ref={this.mermaidDivRef}>
-                    {this.state.config}
-                </div>
+                {
+                    sequenceDiagramData
+                        ? (
+                            <div>
+                                <div id="tooltip" className={classes.tooltip}></div>
+                                <div className={classes.sequenceDiagram} ref={this.mermaidDivRef}>
+                                    {sequenceDiagramData}
+                                </div>
+                            </div>
+                        )
+                        : null
+                }
             </div>
-
         );
     }
 
     componentDidMount() {
-        this.addCells();
-        interact(".messageText").on("tap", (event) => {
-            if ((event.srcElement.innerHTML !== "Return")
-                && (this.state.clicked !== true)) {
-                const numb = event.srcElement.innerHTML.match(/\d+/g).map(Number);
-                this.addServices(numb);
+        const {selectedActionId} = this.state;
+        const self = this;
+        self.drawCellLevelSequenceDiagram();
+        interact(`.${SequenceDiagram.Classes.ACTION_MESSAGE_TEXT}`).on("tap", (event) => {
+            if (event.srcElement.innerHTML.match(SequenceDiagram.ACTION_LABEL_PATTERN) && !selectedActionId) {
+                const matches = (SequenceDiagram.ACTION_LABEL_PATTERN).exec(event.srcElement.innerHTML);
+                this.setState({
+                    selectedCell: matches[1]
+                });
+                this.drawComponentLevelSequenceDiagram(Number(matches[2]));
             }
         });
-        this.cloneArray();
     }
 
     componentDidUpdate(prevProps, prevState, snapshot) {
-        if (this.state.config !== prevState.config) {
-            const collectionsMessage = this.mermaidDivRef.current.getElementsByClassName("messageText");
+        const {selectedActionId, sequenceDiagramData} = this.state;
+        if (sequenceDiagramData !== prevState.sequenceDiagramData) {
             this.mermaidDivRef.current.removeAttribute("data-processed");
             mermaid.init(this.mermaidDivRef.current);
 
-            if (!this.state.clicked) {
-                this.setMessageLinkStyle(collectionsMessage);
+            if (!selectedActionId) {
+                this.updateActionLabelStyle();
             }
         }
-
-        if (this.state.config !== prevState.config || this.props.colorGenerator !== prevProps.colorGenerator) {
-            const collectionsActor = this.mermaidDivRef.current.getElementsByClassName("actor");
-            this.addActorColor(this.state.clicked, collectionsActor);
-        }
+        this.updateActorStyle(selectedActionId);
     }
 
     /**
-     * Sets the style for message links that are clickable (cell -level diagram).
-     *
-     * @param {Element []} messageElementArray The array of message link elements.
+     * Update the action label's style.
      */
-
-    setMessageLinkStyle(messageElementArray) {
+    updateActionLabelStyle() {
         const {classes} = this.props;
-        for (let i = 0; i < messageElementArray.length; i++) {
-            if (messageElementArray[i].innerHTML.match("\\s\\[([0-9]+)\\]+$")) {
-                messageElementArray[i].classList.add(classes.newMessageText);
+        const actionLabelElement = this.mermaidDivRef.current
+            .getElementsByClassName(SequenceDiagram.Classes.ACTION_MESSAGE_TEXT);
+        for (let i = 0; i < actionLabelElement.length; i++) {
+            if (actionLabelElement[i].innerHTML.match(SequenceDiagram.ACTION_LABEL_PATTERN)) {
+                actionLabelElement[i].classList.add(classes.clickableMessageText);
             }
         }
     }
 
-
     /**
-     * Adds the relevant cell color, which is consistent throughout the dashboard, to the actors.
+     * Update the actor's style.
      *
-     * @param {boolean} serviceClicked The variable to check if the user is in service-level diagram.
-     * @param {Element[]} elementArray The array of elements with the class name `actor`.
+     * @param {boolean} isComponentLevel True if the sequence diagram is a component level Sequence Diagram
      */
-    addActorColor(serviceClicked, elementArray) {
+    updateActorStyle(isComponentLevel) {
         const {colorGenerator} = this.props;
-        let color;
-        let cellName;
-        let actorStyle;
-        if (serviceClicked) {
-            cellName = this.state.cellClicked;
+        const {selectedCell} = this.state;
+        const elementArray = this.mermaidDivRef.current.getElementsByClassName(SequenceDiagram.Classes.ACTOR);
+        const elementWidth = elementArray[0].getAttribute("width");
+        if (isComponentLevel) {
+            const cellName = selectedCell;
+            let color;
             if (cellName === SequenceDiagram.GLOBAL) {
                 color = colorGenerator.getColor(ColorGenerator.SYSTEM);
             } else {
-                color = colorGenerator.getColor(SequenceDiagram.addDash(cellName));
+                color = colorGenerator.getColor(SequenceDiagram.getActorIdFromSanitizedName(cellName));
             }
-            actorStyle = `
-                stroke: ${color};
-                stroke-width: 3;
-                fill: #ffffff`;
 
-            for (let i = 0; i < elementArray.length; i += 2) {
-                elementArray[i].style = actorStyle;
+            for (let i = 1; i < elementArray.length; i += 2) {
+                const componentName = SequenceDiagram.getActorIdFromSanitizedName(
+                    elementArray[i].firstElementChild.innerHTML);
+
+                // Show and hide actor tooltip on hover to rectangle
+                elementArray[i - 1].addEventListener("mouseenter", (event) => {
+                    this.showTooltip(event, componentName);
+                });
+                elementArray[i - 1].addEventListener("mouseleave", () => {
+                    this.hideTooltip();
+                });
+
+                // Show and hide actor tooltip on hover to text
+                elementArray[i].addEventListener("mouseenter", (event) => {
+                    this.showTooltip(event, componentName);
+                });
+                elementArray[i].addEventListener("mouseleave", () => {
+                    this.hideTooltip();
+                });
+
+                // Truncating cell name when cellName is too long
+                const letterLength = elementArray[i].getBBox().width / elementArray[i].textContent.length;
+                const lettersLength = Math.round(elementWidth / letterLength);
+                if (elementArray[i].getBBox().width > elementWidth) {
+                    const truncatedComponentName = `${componentName.substring(0, lettersLength - 5)}...`;
+                    elementArray[i].textContent = truncatedComponentName;
+                }
+
+                elementArray[i - 1].style.stroke = color;
+                elementArray[i - 1].style.strokeWidth = 3;
+                elementArray[i - 1].style.fill = "#ffffff";
             }
         } else {
             // For loop with iteration by factor 2 to skip SVG `rect` element and get the text in each actor.
             for (let i = 1; i < elementArray.length; i += 2) {
                 if (elementArray[i].firstElementChild !== null) {
-                    const cellName = SequenceDiagram.addDash(elementArray[i].firstElementChild.innerHTML);
-                    if (cellName === SequenceDiagram.addDash(SequenceDiagram.GLOBAL_GATEWAY)) {
+                    const cellName = SequenceDiagram.getActorIdFromSanitizedName(
+                        elementArray[i].firstElementChild.innerHTML);
+                    let color;
+                    if (cellName === SequenceDiagram.GLOBAL_GATEWAY) {
                         color = colorGenerator.getColor(ColorGenerator.SYSTEM);
                     } else {
                         color = colorGenerator.getColor(cellName);
                     }
-                    actorStyle = `
-                stroke: ${color};
-                stroke-width: 3;
-                fill: #ffffff`;
                     // Index of i-1 is given to set the style to the respective SVG `rect` element.
-                    elementArray[i - 1].style = actorStyle;
-                }
-            }
-        }
-    }
+                    elementArray[i - 1].style.stroke = color;
+                    elementArray[i - 1].style.strokeWidth = 3;
+                    elementArray[i - 1].style.fill = "#ffffff";
 
-    /**
-     * Create a copy of the original span list
-     */
+                    // Show and hide actor tooltip on hover to text
+                    elementArray[i].addEventListener("mouseenter", (event) => {
+                        this.showTooltip(event, cellName);
+                    });
+                    elementArray[i].addEventListener("mouseleave", () => {
+                        this.hideTooltip();
+                    });
+                    // Show and hide actor tooltip on hover to rectangle
+                    elementArray[i - 1].addEventListener("mouseenter", (event) => {
+                        this.showTooltip(event, cellName);
+                    });
+                    elementArray[i - 1].addEventListener("mouseleave", () => {
+                        this.hideTooltip();
+                    });
 
-    cloneArray() {
-        this.setState({
-            clonedArray: this.props.spans
-        });
-    }
-
-
-    /**
-     * Adds the service calls made for a particular cell to the diagram.
-     *
-     * @param {number[]} callId The span's call Id of the particular cell call.
-     */
-
-    addServices(callId) {
-        let data2 = "sequenceDiagram \n";
-        const treeRoot = this.state.clonedArray[SequenceDiagram.findSpanIndexCall(this.state.clonedArray, callId)];
-        const parentName = treeRoot.cell.name;
-        this.setState({
-            cellClicked: parentName,
-            callIdClicked: callId
-        });
-        data2 += `activate ${SequenceDiagram.removeDash(treeRoot.serviceName)}\n`;
-        let j = 0;
-        treeRoot.walk(
-            (span) => {
-                if (!span.isFromIstioSystemComponent() && !span.isFromCellerySystemComponent()) {
-                    if (!span.callingId && parentName === span.cell.name) {
-                        if (span.parent.serviceName !== span.serviceName) {
-                            j += 1;
-                            data2 += `${`${SequenceDiagram.removeDash(span.parent.serviceName)}  ->>+`
-                                + `${SequenceDiagram.removeDash(span.serviceName)}:`}${span.operationName}`
-                                + `- [${callId}.${j}] \n`;
-                        }
-                    }
-                }
-            }, null,
-            (span) => {
-                if (!span.isFromIstioSystemComponent() && !span.isFromCellerySystemComponent()) {
-                    data2 += SequenceDiagram.updateTextDataWithReturn(span, parentName);
-                }
-            },
-            (span) => (!span.isFromIstioSystemComponent() && !span.isFromCellerySystemComponent()
-                && !span.callingId && parentName !== span.parent.cell.name)
-        );
-        data2 += `deactivate ${SequenceDiagram.removeDash(treeRoot.serviceName)}\n`;
-        this.setState({
-            config: data2,
-            clicked: true
-        });
-    }
-
-    /**
-     * Updates the text data, which is used by the mermaid library to generate diagrams, with return drawn.
-     *
-     * @param {Span} span The span array.
-     * @param {String} parentName The parent cell name
-     * @return {String} text The updated text
-     */
-
-    static updateTextDataWithReturn(span, parentName) {
-        let text = "";
-        if (!span.callingId && parentName === span.cell.name) {
-            if (span.parent.serviceName !== span.serviceName) {
-                text += `${SequenceDiagram.removeDash(span.serviceName)}-->>- `
-                    + `${SequenceDiagram.removeDash(span.parent.serviceName)}: Return \n`;
-            }
-        }
-        return text;
-    }
-
-    /**
-     * Adds the cell calls made for a particular trace to the diagram..
-     */
-    addCells() {
-        this.setState({
-            config: this.drawCells(),
-            clicked: false
-        });
-    }
-
-    /**
-     * Gets all the cells that has been involved in the particular trace.
-     *
-     * @param {Array} spanArray The array containing the list of all spans.
-     * @return {Array} cellArray The array containing all the cells in the trace.
-     */
-
-    static separateCells(spanArray) {
-        const cellArray = [];
-        for (let i = 0; i < spanArray.length; i++) {
-            if ((spanArray[i].serviceName.includes(SequenceDiagram.GLOBAL))) {
-                if (!cellArray.includes(SequenceDiagram.GLOBAL_GATEWAY)) {
-                    cellArray.push(SequenceDiagram.GLOBAL_GATEWAY);
-                }
-            }
-            if (spanArray[i].cell) {
-                const cellName = SequenceDiagram.removeDash(spanArray[i].cell.name);
-                if (!cellArray.includes(cellName)) {
-                    cellArray.push(cellName);
-                }
-            }
-        }
-        return cellArray;
-    }
-
-    /**
-     * Include all the cells in the trace as actors in the sequence diagram..
-     *
-     * @return {String} dataText The text data as string which is converted to the diagram by the mermaid library.
-     */
-
-    drawCells() {
-        const array = SequenceDiagram.separateCells(this.props.spans);
-        let dataText = "sequenceDiagram \n";
-        for (let i = 0; i < array.length; i++) {
-            dataText += `participant ${array[i]}\n`;
-        }
-        dataText += `activate ${SequenceDiagram.GLOBAL_GATEWAY}\n`;
-        return dataText + this.addCellConnections();
-    }
-
-    /**
-     * Connects all the cell communications in the diagram.
-     *
-     * @returns {string} dataText The text data of string type that is converted by the mermaid
-     *                             library to depict the cell connections.
-     */
-    addCellConnections() {
-        let callId = 1;
-        const tree = TracingUtils.getTreeRoot(this.props.spans);
-        let dataText = "";
-        tree.walk((span) => {
-            let parentCellName;
-            let childCellName;
-            if (span.parent !== null) {
-                if (span.parent.cell === null) {
-                    parentCellName = SequenceDiagram.GLOBAL_GATEWAY;
-                } else {
-                    parentCellName = span.parent.cell.name;
-                }
-                if (span.cell) {
-                    parentCellName = SequenceDiagram.removeDash(parentCellName);
-                    childCellName = SequenceDiagram.removeDash(span.cell.name);
-                    if (parentCellName !== childCellName
-                        && !span.operationName.match(Constants.System.SIDECAR_AUTH_FILTER_OPERATION_NAME_PATTERN)) {
-                        span.callingId = callId;
-                        dataText += `${parentCellName}->>+${childCellName}: call ${span.cell.name}-cell [${callId}] \n`;
-                        callId += 1;
+                    // Truncating cell name when cellName is too long
+                    const letterLength = elementArray[i].getBBox().width / elementArray[i].textContent.length;
+                    const lettersLength = Math.round(elementWidth / letterLength);
+                    if (elementArray[i].getBBox().width > elementWidth) {
+                        const truncatedCellName = `${cellName.substring(0, lettersLength - 5)}...`;
+                        elementArray[i].textContent = truncatedCellName;
                     }
                 }
             }
-        }, undefined, (span) => {
-            if (span.cell) {
-                let parentCellName = "";
-                if (span.parent.cell === null) {
-                    parentCellName = SequenceDiagram.GLOBAL_GATEWAY;
-                } else {
-                    parentCellName = span.parent.cell.name;
-                }
-                if (span.cell.name !== parentCellName
-                    && !span.operationName.match(Constants.System.SIDECAR_AUTH_FILTER_OPERATION_NAME_PATTERN)) {
-                    dataText += `${SequenceDiagram.removeDash(span.cell.name)}-->>-`
-                        + `${SequenceDiagram.removeDash(parentCellName)}: Return \n`;
-                }
-            }
-        });
-        dataText += `deactivate ${SequenceDiagram.GLOBAL_GATEWAY}`;
-        return dataText;
+        }
     }
 
     /**
-     * Removes dash symbol from cell/service names as the library doesn't support dashes in the actors name.
+     * Show tooltip.
      *
-     * @param {string} name The cell/service name that needs to be checked for dashes.
-     * @returns {string} name The cell/service name after removing the dashes.
+     * @param {event} evt Mouse event
+     * @param {string} text The actor name
      */
-    static removeDash(name) {
-        if (name.includes("-")) {
-            return name.replace(/-/g, " ");
-        }
-        return name;
-    }
+    showTooltip = (evt, text) => {
+        const tooltip = document.getElementById("tooltip");
+        tooltip.innerHTML = text;
+        tooltip.style.display = "block";
+        tooltip.style.left = `${evt.pageX}px`;
+        tooltip.style.top = `${evt.pageY}px`;
+    };
 
-    static addDash(name) {
-        if (name.includes(" ")) {
-            return name.replace(" ", "-");
+    /**
+     * Hide tooltip.
+     */
+    hideTooltip = () => {
+        const tooltip = document.getElementById("tooltip");
+        tooltip.style.display = "none";
+    };
+
+    /**
+     * Draw the Cell level Sequence Sequence.
+     */
+    drawCellLevelSequenceDiagram = () => {
+        const {spans} = this.props;
+        const tree = TracingUtils.getTreeRoot(spans);
+
+        const resolveActorName = (span) => SequenceDiagram.sanitizeActorName(
+            span.cell ? span.cell.name : SequenceDiagram.GLOBAL_GATEWAY);
+        const resolveCallingId = (id) => id;
+
+        this.setState({
+            selectedCell: "",
+            selectedActionId: ""
+        });
+        this.drawSequenceDiagram(tree, resolveActorName, resolveCallingId);
+    };
+
+    /**
+     * Draw the Component level Sequence Sequence.
+     *
+     * @param {number} actionId The Id of the selected Cell Level action
+     */
+    drawComponentLevelSequenceDiagram = (actionId) => {
+        const {spans} = this.props;
+        const subTree = spans.find((span) => (span.actionId && span.actionId === actionId));
+
+        const resolveActorName = (span) => SequenceDiagram.sanitizeActorName(span.serviceName);
+        const resolveCallingId = (id) => `${actionId}.${id}`;
+        const shouldTerminate = (span) => ((subTree.cell !== null && span.cell === null)
+            || (subTree.cell === null && span.cell !== null)
+            || subTree.cell.name !== span.cell.name);
+
+        this.setState({
+            selectedActionId: actionId
+        });
+        this.drawSequenceDiagram(subTree, resolveActorName, resolveCallingId, shouldTerminate);
+    };
+
+    /**
+     * Draw a Sequence Diagram.
+     * This updates the state with the Sequence diagram data.
+     *
+     * @param {Span} tree The tree for which the sequence diagram should be generated
+     * @param {Function} resolveActorName Function to generate the actor name from span
+     * @param {Function} resolveCallingId Function to generate the action Id
+     * @param {Function} shouldTerminate Function for deciding whether the tree traversing should terminate
+     */
+    drawSequenceDiagram(tree, resolveActorName, resolveCallingId, shouldTerminate = null) {
+        const actors = [];
+        let initialSpan;
+        const addActorIfNotPresent = (span) => {
+            const actor = resolveActorName(span);
+            if (!actors.includes(actor)) {
+                actors.push(actor);
+            }
+            if (!initialSpan) {
+                initialSpan = span;
+            }
+        };
+
+        let actionId = 1;
+        const actions = [];
+        tree.walk((span, data) => {
+            let linkSource = data;
+            if (!Constants.System.SIDECAR_AUTH_FILTER_OPERATION_NAME_PATTERN.test(span.operationName)
+                && !Constants.System.ISTIO_MIXER_NAME_PATTERN.test(span.serviceName)
+                && (!linkSource || resolveActorName(linkSource) !== resolveActorName(span))) {
+                const linkTarget = span;
+                if (linkSource && linkTarget.kind === Constants.Span.Kind.SERVER) { // Ending link traversing
+                    const linkSourceActor = resolveActorName(linkSource);
+                    const linkTargetActor = resolveActorName(linkTarget);
+                    actions.push(`${linkSourceActor}->>+${linkTargetActor}: `
+                        + `Call ${linkTargetActor} [${resolveCallingId(actionId)}] \n`);
+                    linkTarget.actionId = actionId;
+                    actionId += 1;
+                    linkSource = null;
+                } else if (!linkSource && span.kind === Constants.Span.Kind.CLIENT) { // Starting link traversing
+                    linkSource = span;
+                }
+                addActorIfNotPresent(span);
+            }
+            return linkSource;
+        }, null, (span, data) => {
+            const linkSource = span;
+            const linkTarget = data;
+            if (!Constants.System.SIDECAR_AUTH_FILTER_OPERATION_NAME_PATTERN.test(linkSource.operationName)
+                && !Constants.System.ISTIO_MIXER_NAME_PATTERN.test(linkSource.serviceName)
+                && (!linkTarget || resolveActorName(linkTarget) !== resolveActorName(linkSource))) {
+                if (linkTarget && linkSource.kind === Constants.Span.Kind.SERVER) { // Ending link traversing
+                    actions.push(`${resolveActorName(linkSource)}-->>-${resolveActorName(linkTarget)}: Return \n`);
+                }
+            }
+        }, shouldTerminate);
+
+        // Generating the sequence diagram data. This string is used by mermaid for generating the Sequence Diagram.
+        let sequenceDiagramData = "sequenceDiagram\n";
+        for (let i = 0; i < actors.length; i++) {
+            sequenceDiagramData += `participant ${actors[i]}\n`;
         }
-        return name;
+        if (initialSpan) {
+            sequenceDiagramData += `activate ${resolveActorName(initialSpan)}\n`;
+        }
+        for (let i = 0; i < actions.length; i++) {
+            sequenceDiagramData += actions[i];
+        }
+        if (initialSpan) {
+            sequenceDiagramData += `deactivate ${resolveActorName(initialSpan)}\n`;
+        }
+        this.setState({
+            sequenceDiagramData: sequenceDiagramData
+        });
     }
 
     /**
-     * Gets the index of the span object from an array by checking the span's unique id.
+     * Sanitize the actor name for mermaid.
+     * Dashes are not supported mermaid in the actor names. Therefore this is replaced with an underscore.
      *
-     * @param {Array} data The array from which the index should be found.
-     * @param {number[]} value The call Id of the span object.
-     *
+     * @param {string} name The actor name that needs to be sanitized
+     * @returns {string} name The sanitized actor name
      */
+    static sanitizeActorName(name) {
+        return name.replace(/-/g, "_");
+    }
 
-    static findSpanIndexCall(data, value) {
-        let isFound = false;
-        return data.findIndex((item) => {
-            if (item.callingId) {
-                isFound = item.callingId === value[0];
-            }
-            return isFound;
-        });
+    /**
+     * Get the original actor name from the sanitized name.
+     * This is used when the name is identified from the HTML elements created by mermaid.
+     * The original actor name cannot contain "_"s. Therefore this replacement would guarantee
+     * getting back the original actor name.
+     *
+     * @param {string} name The already sanitized actor name
+     * @returns {string} The actual actor name
+     */
+    static getActorIdFromSanitizedName(name) {
+        return name.replace(/_/g, "-");
     }
 
 }
 
 SequenceDiagram.propTypes = {
-    classes: PropTypes.any.isRequired,
+    classes: PropTypes.object.isRequired,
     spans: PropTypes.arrayOf(
         PropTypes.instanceOf(Span).isRequired
     ).isRequired,
@@ -423,5 +440,3 @@ SequenceDiagram.propTypes = {
 };
 
 export default withStyles(styles, {withTheme: true})(withColor(SequenceDiagram));
-
-
